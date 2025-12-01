@@ -2,155 +2,225 @@ import axios from "axios";
 import DataLoader from "dataloader";
 import { STUDENT_URL, COURSE_URL } from "./config.js";
 
-// ✅ Clients Axios
-const studentClient = axios.create({ 
-  baseURL: STUDENT_URL, 
-  timeout: 10000 
+// ✅ Clients HTTP avec configuration correcte
+const studentClient = axios.create({
+  baseURL: STUDENT_URL,
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' }
 });
 
-const courseClient = axios.create({ 
-  baseURL: COURSE_URL, 
-  timeout: 10000 
+const courseClient = axios.create({
+  baseURL: COURSE_URL,
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' }
 });
 
-// ✅ DataLoader
+// ✅ DataLoader CORRIGÉ - Utiliser le bon endpoint
 export function createCoursesLoader() {
   return new DataLoader(async (studentIds) => {
-    const promises = studentIds.map(id =>
-      courseClient
-        .get(`/student/${id}/courses/`)  // ✅ URL corrigée
-        .then(r => r.data)
-        .catch(() => [])
-    );
-    return await Promise.all(promises);
+    console.log(`📚 DataLoader - Chargement cours pour étudiants: ${studentIds}`);
+    
+    try {
+      // Demander TOUS les cours d'un coup au service Course
+      const response = await courseClient.get("/api/courses/");
+      const allCourses = response.data;
+      
+      // Simuler un mapping étudiant -> cours (à adapter selon votre API)
+      return studentIds.map(studentId => {
+        // Filtre les cours pour cet étudiant
+        // ⚠️ ADAPTER cette logique selon votre structure de données
+        const studentCourses = allCourses.filter(course => 
+          course.students && course.students.includes(parseInt(studentId))
+        );
+        
+        return studentCourses.map(course => ({
+          id: course.id,
+          name: course.name,
+          instructor: course.instructor,
+          category: course.category,
+          schedule: course.schedule
+        }));
+      });
+    } catch (error) {
+      console.error("❌ DataLoader error:", error.message);
+      return studentIds.map(() => []);
+    }
   }, { cache: true });
 }
 
-// ✅ Resolvers CORRIGÉS
 export const resolvers = {
   Query: {
+    health: () => ({
+      status: "OK",
+      timestamp: new Date().toISOString(),
+      services: {
+        student: STUDENT_URL,
+        course: COURSE_URL
+      }
+    }),
+
+    // ✅ STUDENTS - Utiliser le service Student
     students: async () => {
-      const res = await studentClient.get("/api/students");
-      return res.data.map(s => ({
-        id: s.id,
-        first_name: s.firstName,
-        last_name: s.lastName,
-        email: s.email,
-      }));
+      try {
+        console.log(`📡 Récupération étudiants depuis: ${STUDENT_URL}/api/students`);
+        const res = await studentClient.get("/api/students");
+        return res.data.map(s => ({
+          id: s.id,
+          first_name: s.first_name || s.firstName,
+          last_name: s.last_name || s.lastName,
+          email: s.email,
+        }));
+      } catch (error) {
+        console.error("❌ Error fetching students:", error.message);
+        throw new Error(`Failed to fetch students: ${error.message}`);
+      }
     },
 
     student: async (_, { id }) => {
-      const res = await studentClient.get(`/api/students/${id}`);
-      const s = res.data;
-      return {
-        id: s.id,
-        first_name: s.firstName,
-        last_name: s.lastName,
-        email: s.email,
-      };
+      try {
+        const res = await studentClient.get(`/api/students/${id}`);
+        const s = res.data;
+        return {
+          id: s.id,
+          first_name: s.first_name || s.firstName,
+          last_name: s.last_name || s.lastName,
+          email: s.email,
+        };
+      } catch (error) {
+        throw new Error(`Student ${id} not found: ${error.message}`);
+      }
     },
 
+    // ✅ COURSES - Utiliser le service Course
     courses: async () => {
-      const res = await courseClient.get("/api/courses");
-      return res.data.map(c => ({
-        id: c.id,
-        name: c.name,
-        instructor: c.instructor,
-        category: c.category,
-        schedule: c.schedule,
-      }));
+      try {
+        console.log(`📡 Récupération cours depuis: ${COURSE_URL}/api/courses`);
+        const res = await courseClient.get("/api/courses");
+        return res.data.map(c => ({
+          id: c.id,
+          name: c.name,
+          instructor: c.instructor,
+          category: c.category,
+          schedule: c.schedule,
+        }));
+      } catch (error) {
+        console.error("❌ Error fetching courses:", error.message);
+        throw new Error(`Failed to fetch courses: ${error.message}`);
+      }
     },
 
     course: async (_, { id }) => {
-      const res = await courseClient.get(`/api/courses/${id}`);
-      const c = res.data;
-      return {
-        id: c.id,
-        name: c.name,
-        instructor: c.instructor,
-        category: c.category,
-        schedule: c.schedule,
-      };
+      try {
+        const res = await courseClient.get(`/api/courses/${id}`);
+        const c = res.data;
+        return {
+          id: c.id,
+          name: c.name,
+          instructor: c.instructor,
+          category: c.category,
+          schedule: c.schedule,
+        };
+      } catch (error) {
+        throw new Error(`Course ${id} not found: ${error.message}`);
+      }
     },
 
-    // ✅ Query pour récupérer les étudiants d'un cours
+    // ✅ CORRIGÉ - Utiliser le bon endpoint
     courseStudents: async (_, { courseId }) => {
       try {
-        console.log(`🎯 GraphQL - Récupération étudiants du cours: ${courseId}`);
+        console.log(`🎯 Récupération étudiants du cours ${courseId}`);
         
-        const response = await courseClient.get(`/course/${courseId}/students/`);
-        
-        if (!response.data || !response.data.students) {
+        // Option 1: Si votre API Course a cet endpoint
+        try {
+          const response = await courseClient.get(`/api/courses/${courseId}/students/`);
+          return response.data.map(student => ({
+            id: student.id,
+            first_name: student.first_name,
+            last_name: student.last_name,
+            email: student.email,
+          }));
+        } catch (error) {
+          // Option 2: Récupérer d'abord le cours, puis les étudiants via le service Student
+          const courseResponse = await courseClient.get(`/api/courses/${courseId}`);
+          const course = courseResponse.data;
+          
+          // Si le cours contient des IDs d'étudiants
+          if (course.students && Array.isArray(course.students)) {
+            // Récupérer les détails des étudiants
+            const studentPromises = course.students.map(studentId =>
+              studentClient.get(`/api/students/${studentId}`)
+                .then(r => r.data)
+                .catch(() => null)
+            );
+            
+            const students = await Promise.all(studentPromises);
+            return students.filter(s => s !== null).map(s => ({
+              id: s.id,
+              first_name: s.first_name || s.firstName,
+              last_name: s.last_name || s.lastName,
+              email: s.email,
+            }));
+          }
+          
           return [];
         }
-
-        // ✅ Retourner directement les données formatées par Django
-        return response.data.students.map(student => ({
-          id: student.id,
-          first_name: student.first_name,
-          last_name: student.last_name,
-          email: student.email,
-          university: student.university || null
-        }));
-
       } catch (error) {
-        console.error("❌ Erreur courseStudents:", error.message);
+        console.error("❌ Error fetching course students:", error.message);
         return [];
       }
     },
   },
 
   Mutation: {
-    // 🔥 MUTATION : Inscription avec meilleure gestion d'erreur
+    // ✅ CORRIGÉ - Mutation simplifiée
     enrollStudent: async (_, { courseId, studentId }) => {
       try {
-        console.log(`🎯 GraphQL - Inscription: étudiant ${studentId} au cours ${courseId}`);
+        console.log(`🎯 Inscription: étudiant ${studentId} au cours ${courseId}`);
         
+        // ✅ OPTION A: Envoyer directement au service Course
+        // (Le service Course doit gérer la validation lui-même)
         const payload = {
           student_id: parseInt(studentId),
           course_id: parseInt(courseId)
         };
-
-        console.log("📦 Payload envoyé à Django:", payload);
-
-        const response = await courseClient.post("/api/enroll/", payload);
-
-        console.log("✅ Réponse Django:", response.data);
-
+        
+        console.log("📦 Payload:", payload);
+        console.log("📡 Envoi à:", `${COURSE_URL}/enroll/`);
+        
+        const response = await courseClient.post("/enroll/", payload, {
+          timeout: 20000
+        });
+        
+        console.log("✅ Réponse:", response.data);
+        
         return {
           success: true,
-          message: response.data.message || "✅ Étudiant inscrit avec succès",
+          message: response.data.message || "Inscription réussie",
           enrollment: {
-            id: Date.now(),
+            id: Date.now().toString(),
             student: { id: studentId },
             course: { id: courseId }
           }
         };
-
+        
       } catch (error) {
-        console.error("❌ Erreur détaillée enrollment:", {
+        console.error("❌ Erreur inscription:", {
           message: error.message,
+          code: error.code,
           status: error.response?.status,
           data: error.response?.data
         });
-
+        
         let errorMessage = "Erreur lors de l'inscription";
         
-        if (error.response) {
-          const status = error.response.status;
-          const data = error.response.data;
-          
-          if (status === 404) {
-            errorMessage = "❌ Route non trouvée. Vérifiez l'URL.";
-          } else if (data && data.error) {
-            errorMessage = `❌ ${data.error}`;
-          } else {
-            errorMessage = `❌ Erreur ${status}`;
-          }
+        if (error.response?.data?.error) {
+          errorMessage = error.response.data.error;
         } else if (error.code === 'ECONNREFUSED') {
-          errorMessage = "❌ Impossible de se connecter à Django.";
+          errorMessage = "Service Course inaccessible";
+        } else if (error.code === 'ETIMEDOUT') {
+          errorMessage = "Timeout - Service Course trop lent à répondre";
         }
-
+        
         return {
           success: false,
           message: errorMessage,
@@ -160,21 +230,14 @@ export const resolvers = {
     }
   },
 
-  // ✅ RELATIONS - UN SEUL resolver par type
+  // ✅ CORRIGÉ - Relations
   Student: {
-    courses: async (parent) => {
+    courses: async (parent, _, { loaders }) => {
       try {
-        const studentId = parent.id;
-        const response = await courseClient.get(`/student/${studentId}/courses/`);
-        return response.data.map(course => ({
-          id: course.id,
-          name: course.name,
-          instructor: course.instructor,
-          category: course.category,
-          schedule: course.schedule
-        }));
+        // Utiliser le DataLoader
+        return await loaders.coursesLoader.load(parent.id);
       } catch (error) {
-        console.error("Erreur récupération cours étudiant:", error.message);
+        console.error(`Erreur récupération cours étudiant ${parent.id}:`, error.message);
         return [];
       }
     },
@@ -183,24 +246,29 @@ export const resolvers = {
   Course: {
     students: async (parent) => {
       try {
-        const courseId = parent.id;
-        const response = await courseClient.get(`/course/${courseId}/students/`);
+        // Utiliser la même logique que courseStudents
+        const response = await courseClient.get(`/api/courses/${parent.id}`);
+        const course = response.data;
         
-        if (!response.data || !response.data.students) {
-          return [];
+        if (course.students && Array.isArray(course.students)) {
+          const studentPromises = course.students.map(studentId =>
+            studentClient.get(`/api/students/${studentId}`)
+              .then(r => r.data)
+              .catch(() => null)
+          );
+          
+          const students = await Promise.all(studentPromises);
+          return students.filter(s => s !== null).map(s => ({
+            id: s.id,
+            first_name: s.first_name || s.firstName,
+            last_name: s.last_name || s.lastName,
+            email: s.email,
+          }));
         }
-
-        // ✅ Format cohérent avec courseStudents
-        return response.data.students.map(student => ({
-          id: student.id,
-          first_name: student.first_name,
-          last_name: student.last_name,
-          email: student.email,
-          university: student.university || null
-        }));
-
+        
+        return [];
       } catch (error) {
-        console.error("Erreur récupération étudiants cours:", error.message);
+        console.error(`Erreur récupération étudiants cours ${parent.id}:`, error.message);
         return [];
       }
     }
