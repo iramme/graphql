@@ -113,7 +113,7 @@ export const resolvers = {
 
         console.log("📦 Payload envoyé à Django:", payload);
 
-        const response = await courseClient.post("/enroll/", payload);
+        const response = await courseClient.post("/api/enroll/", payload);
 
         console.log("✅ Réponse Django:", response.data);
 
