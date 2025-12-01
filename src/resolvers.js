@@ -2,168 +2,78 @@ import axios from "axios";
 import DataLoader from "dataloader";
 import { STUDENT_URL, COURSE_URL } from "./config.js";
 
-// ✅ Clients Axios avec meilleure configuration pour le cloud
+// ✅ Clients Axios
 const studentClient = axios.create({ 
   baseURL: STUDENT_URL, 
-  timeout: 15000, // Augmenté pour le réseau cloud
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  }
+  timeout: 10000 
 });
 
 const courseClient = axios.create({ 
   baseURL: COURSE_URL, 
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  }
+  timeout: 10000 
 });
 
-// ✅ Intercepteurs pour le logging en production
-if (process.env.NODE_ENV === 'production') {
-  studentClient.interceptors.response.use(
-    response => response,
-    error => {
-      console.error('Student Service Error:', {
-        url: error.config?.url,
-        method: error.config?.method,
-        status: error.response?.status,
-        message: error.message
-      });
-      return Promise.reject(error);
-    }
-  );
-  
-  courseClient.interceptors.response.use(
-    response => response,
-    error => {
-      console.error('Course Service Error:', {
-        url: error.config?.url,
-        method: error.config?.method,
-        status: error.response?.status,
-        message: error.message
-      });
-      return Promise.reject(error);
-    }
-  );
-}
-
-// ✅ DataLoader optimisé
+// ✅ DataLoader
 export function createCoursesLoader() {
   return new DataLoader(async (studentIds) => {
-    console.log(`📚 DataLoader - Chargement cours pour ${studentIds.length} étudiants`);
-    
-    try {
-      const promises = studentIds.map(id =>
-        courseClient
-          .get(`/student/${id}/courses/`)
-          .then(r => {
-            if (r.data && Array.isArray(r.data)) {
-              return r.data.map(course => ({
-                id: course.id,
-                name: course.name,
-                instructor: course.instructor,
-                category: course.category,
-                schedule: course.schedule
-              }));
-            }
-            return [];
-          })
-          .catch(error => {
-            console.warn(`⚠️ Aucun cours trouvé pour l'étudiant ${id}:`, error.message);
-            return [];
-          })
-      );
-      return await Promise.all(promises);
-    } catch (error) {
-      console.error('❌ DataLoader error:', error.message);
-      return studentIds.map(() => []);
-    }
-  }, { 
-    cache: true,
-    batchScheduleFn: callback => setTimeout(callback, 10) // Micro-batching
-  });
+    const promises = studentIds.map(id =>
+      courseClient
+        .get(`/student/${id}/courses/`)  // ✅ URL corrigée
+        .then(r => r.data)
+        .catch(() => [])
+    );
+    return await Promise.all(promises);
+  }, { cache: true });
 }
 
-// ✅ Resolvers avec meilleure gestion d'erreurs
+// ✅ Resolvers CORRIGÉS
 export const resolvers = {
   Query: {
-    // ✅ Health check pour Render
-    health: () => ({
-      status: "OK",
-      timestamp: new Date().toISOString(),
-      services: {
-        student: STUDENT_URL,
-        course: COURSE_URL
-      }
-    }),
-
     students: async () => {
-      try {
-        const res = await studentClient.get("/api/students");
-        return res.data.map(s => ({
-          id: s.id,
-          first_name: s.firstName || s.first_name,
-          last_name: s.lastName || s.last_name,
-          email: s.email,
-        }));
-      } catch (error) {
-        console.error("❌ Error fetching students:", error.message);
-        throw new Error(`Failed to fetch students: ${error.response?.data?.detail || error.message}`);
-      }
+      const res = await studentClient.get("/api/students");
+      return res.data.map(s => ({
+        id: s.id,
+        first_name: s.firstName,
+        last_name: s.lastName,
+        email: s.email,
+      }));
     },
 
     student: async (_, { id }) => {
-      try {
-        const res = await studentClient.get(`/api/students/${id}`);
-        const s = res.data;
-        return {
-          id: s.id,
-          first_name: s.firstName || s.first_name,
-          last_name: s.lastName || s.last_name,
-          email: s.email,
-        };
-      } catch (error) {
-        console.error(`❌ Error fetching student ${id}:`, error.message);
-        throw new Error(`Student not found: ${id}`);
-      }
+      const res = await studentClient.get(`/api/students/${id}`);
+      const s = res.data;
+      return {
+        id: s.id,
+        first_name: s.firstName,
+        last_name: s.lastName,
+        email: s.email,
+      };
     },
 
     courses: async () => {
-      try {
-        const res = await courseClient.get("/api/courses");
-        return res.data.map(c => ({
-          id: c.id,
-          name: c.name,
-          instructor: c.instructor,
-          category: c.category,
-          schedule: c.schedule,
-        }));
-      } catch (error) {
-        console.error("❌ Error fetching courses:", error.message);
-        throw new Error(`Failed to fetch courses: ${error.response?.data?.detail || error.message}`);
-      }
+      const res = await courseClient.get("/api/courses");
+      return res.data.map(c => ({
+        id: c.id,
+        name: c.name,
+        instructor: c.instructor,
+        category: c.category,
+        schedule: c.schedule,
+      }));
     },
 
     course: async (_, { id }) => {
-      try {
-        const res = await courseClient.get(`/api/courses/${id}`);
-        const c = res.data;
-        return {
-          id: c.id,
-          name: c.name,
-          instructor: c.instructor,
-          category: c.category,
-          schedule: c.schedule,
-        };
-      } catch (error) {
-        console.error(`❌ Error fetching course ${id}:`, error.message);
-        throw new Error(`Course not found: ${id}`);
-      }
+      const res = await courseClient.get(`/api/courses/${id}`);
+      const c = res.data;
+      return {
+        id: c.id,
+        name: c.name,
+        instructor: c.instructor,
+        category: c.category,
+        schedule: c.schedule,
+      };
     },
 
+    // ✅ Query pour récupérer les étudiants d'un cours
     courseStudents: async (_, { courseId }) => {
       try {
         console.log(`🎯 GraphQL - Récupération étudiants du cours: ${courseId}`);
@@ -174,6 +84,7 @@ export const resolvers = {
           return [];
         }
 
+        // ✅ Retourner directement les données formatées par Django
         return response.data.students.map(student => ({
           id: student.id,
           first_name: student.first_name,
@@ -190,25 +101,14 @@ export const resolvers = {
   },
 
   Mutation: {
+    // 🔥 MUTATION : Inscription avec meilleure gestion d'erreur
     enrollStudent: async (_, { courseId, studentId }) => {
       try {
         console.log(`🎯 GraphQL - Inscription: étudiant ${studentId} au cours ${courseId}`);
         
-        // ✅ Validation des IDs
-        const studentIdNum = parseInt(studentId);
-        const courseIdNum = parseInt(courseId);
-        
-        if (isNaN(studentIdNum) || isNaN(courseIdNum)) {
-          return {
-            success: false,
-            message: "❌ IDs doivent être des nombres valides",
-            enrollment: null
-          };
-        }
-
         const payload = {
-          student_id: studentIdNum,
-          course_id: courseIdNum
+          student_id: parseInt(studentId),
+          course_id: parseInt(courseId)
         };
 
         console.log("📦 Payload envoyé à Django:", payload);
@@ -240,21 +140,15 @@ export const resolvers = {
           const status = error.response.status;
           const data = error.response.data;
           
-          if (status === 400) {
-            errorMessage = data.error || "Données invalides";
-          } else if (status === 404) {
-            errorMessage = "Étudiant ou cours non trouvé";
-          } else if (status === 409) {
-            errorMessage = "L'étudiant est déjà inscrit à ce cours";
+          if (status === 404) {
+            errorMessage = "❌ Route non trouvée. Vérifiez l'URL.";
           } else if (data && data.error) {
             errorMessage = `❌ ${data.error}`;
           } else {
-            errorMessage = `Erreur serveur: ${status}`;
+            errorMessage = `❌ Erreur ${status}`;
           }
         } else if (error.code === 'ECONNREFUSED') {
-          errorMessage = "❌ Service cours indisponible";
-        } else if (error.code === 'ETIMEDOUT') {
-          errorMessage = "❌ Timeout - Service cours trop lent";
+          errorMessage = "❌ Impossible de se connecter à Django.";
         }
 
         return {
@@ -263,36 +157,24 @@ export const resolvers = {
           enrollment: null
         };
       }
-    },
-
-    // ✅ Ajouter d'autres mutations si besoin
-    unenrollStudent: async (_, { courseId, studentId }) => {
-      try {
-        const response = await courseClient.delete(`/unenroll/`, {
-          data: { student_id: parseInt(studentId), course_id: parseInt(courseId) }
-        });
-        
-        return {
-          success: true,
-          message: response.data.message || "✅ Désinscription réussie"
-        };
-      } catch (error) {
-        console.error("❌ Erreur unenroll:", error.message);
-        return {
-          success: false,
-          message: error.response?.data?.error || "Erreur lors de la désinscription"
-        };
-      }
     }
   },
 
+  // ✅ RELATIONS - UN SEUL resolver par type
   Student: {
-    courses: async (parent, _, { loaders }) => {
+    courses: async (parent) => {
       try {
-        // ✅ Utilisation du DataLoader
-        return await loaders.coursesLoader.load(parent.id);
+        const studentId = parent.id;
+        const response = await courseClient.get(`/student/${studentId}/courses/`);
+        return response.data.map(course => ({
+          id: course.id,
+          name: course.name,
+          instructor: course.instructor,
+          category: course.category,
+          schedule: course.schedule
+        }));
       } catch (error) {
-        console.error(`Erreur récupération cours étudiant ${parent.id}:`, error.message);
+        console.error("Erreur récupération cours étudiant:", error.message);
         return [];
       }
     },
@@ -308,6 +190,7 @@ export const resolvers = {
           return [];
         }
 
+        // ✅ Format cohérent avec courseStudents
         return response.data.students.map(student => ({
           id: student.id,
           first_name: student.first_name,
@@ -317,7 +200,7 @@ export const resolvers = {
         }));
 
       } catch (error) {
-        console.error(`Erreur récupération étudiants cours ${parent.id}:`, error.message);
+        console.error("Erreur récupération étudiants cours:", error.message);
         return [];
       }
     }
